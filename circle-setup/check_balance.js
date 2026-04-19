@@ -19,3 +19,6 @@ async function main() {
 }
 
 main().catch(console.error)
+
+
+AccountEndpoint=https://cognizantremitai.documents.azure.com:443/;AccountKey=6riHJmo742jpZRN1voWfHroSYcSZcY9zdhmYEeBqvYoiVFyFhsF5DtRI1cPdJ2NgzTQ42gx6SXd6ACDbRdTJOg==;
