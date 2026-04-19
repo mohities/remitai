@@ -1,0 +1,37 @@
+const https = require('https')
+
+const CIRCLE_API_KEY = 'EST_API_KEY:76b7fb5c6a56baaf5aed9e465426e556:68ae3abf14c66accaf2403888738a67f'
+
+const options = {
+  hostname: 'api.circle.com',
+  path: '/v1/w3s/tokens?blockchain=ETH-SEPOLIA',
+  method: 'GET',
+  headers: {
+    'Authorization': `Bearer ${CIRCLE_API_KEY}`,
+    'Content-Type': 'application/json'
+  }
+}
+
+const req = https.request(options, (res) => {
+  let data = ''
+  res.on('data', chunk => data += chunk)
+  res.on('end', () => {
+    const parsed = JSON.parse(data)
+    console.log('Full response:')
+    console.log(JSON.stringify(parsed, null, 2))
+
+    if (parsed.data && parsed.data.tokens) {
+      console.log('\n--- TOKEN IDs ---')
+      parsed.data.tokens.forEach(token => {
+        console.log(`Name:       ${token.name}`)
+        console.log(`Symbol:     ${token.symbol}`)
+        console.log(`ID:         ${token.id}`)
+        console.log(`Blockchain: ${token.blockchain}`)
+        console.log('---')
+      })
+    }
+  })
+})
+
+req.on('error', e => console.error('Error:', e.message))
+req.end()
