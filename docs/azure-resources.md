@@ -23,3 +23,15 @@ Date: [today]
 ## Circle API
 Environment: Sandbox
 Account: Created
+
+## Circle Wallet — Sandbox
+
+| Item              | Value                        |
+|-------------------|------------------------------|
+| Environment       | Sandbox                      |
+| Wallet Set ID     | paste_here                   |
+| Wallet ID         | paste_here                   |
+| Wallet Address    | paste_here                   |
+| Blockchain        | ETH-SEPOLIA                  |
+| Entity Secret     | stored in Key Vault only      |
+| Recovery file     | stored securely offline       |
