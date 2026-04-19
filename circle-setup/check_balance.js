@@ -20,4 +20,6 @@ async function main() {
 
 main().catch(console.error)
 
+endpoint=https://cognizant-remitai-comms.unitedstates.communication.azure.com/;accesskey=DYNkJaxCcZivpxqB7d7IJkIVlnkBOLIpB2JAgOx0lqGYlaPVGxHoJQQJ99CDACULyCp8HaWQAAAAAZCSOSJF
+
 
