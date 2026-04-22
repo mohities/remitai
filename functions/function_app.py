@@ -6,6 +6,19 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
+def cors_headers() -> dict:
+    return {
+        'Access-Control-Allow-Origin':  '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, x-functions-key'
+    }
+
+def options_response() -> func.HttpResponse:
+    return func.HttpResponse(
+        status_code=200,
+        headers=cors_headers()
+    )
+
 app = func.FunctionApp()
 
 # ─────────────────────────────────────────────
@@ -23,7 +36,8 @@ def get_fx_rate(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(
             json.dumps({"error": "Invalid input. Provide amount_usd and destination_country."}),
             status_code=400,
-            mimetype="application/json"
+            mimetype="application/json",
+            headers=cors_headers()
         )
 
     country_currency_map = {
@@ -46,7 +60,8 @@ def get_fx_rate(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(
             json.dumps({"error": f"Country '{destination_country}' not supported yet."}),
             status_code=400,
-            mimetype="application/json"
+            mimetype="application/json",
+            headers=cors_headers()
         )
 
     try:
@@ -83,7 +98,8 @@ def get_fx_rate(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(
             json.dumps(result),
             status_code=200,
-            mimetype="application/json"
+            mimetype="application/json",
+            headers=cors_headers()
         )
 
     except Exception as e:
@@ -91,7 +107,8 @@ def get_fx_rate(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(
             json.dumps({"error": "Could not fetch exchange rate. Please try again."}),
             status_code=500,
-            mimetype="application/json"
+            mimetype="application/json",
+            headers=cors_headers()
         )
 
 
@@ -115,7 +132,8 @@ def execute_transfer(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(
             json.dumps({"error": "Invalid input. Check all required fields."}),
             status_code=400,
-            mimetype="application/json"
+            mimetype="application/json",
+            headers=cors_headers()
         )
 
     if not all([amount_usd, recipient_phone, recipient_name,
@@ -123,7 +141,8 @@ def execute_transfer(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(
             json.dumps({"error": "Missing required fields."}),
             status_code=400,
-            mimetype="application/json"
+            mimetype="application/json",
+            headers=cors_headers()
         )
 
     transaction_id = f"REMITAI-{str(uuid.uuid4())[:8].upper()}"
@@ -183,7 +202,8 @@ def execute_transfer(req: func.HttpRequest) -> func.HttpResponse:
                     "circle_message":     error_msg
                 }),
                 status_code=500,
-                mimetype="application/json"
+                mimetype="application/json",
+                xheaders=cors_headers()
             )
 
         result = {
@@ -209,7 +229,8 @@ def execute_transfer(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(
             json.dumps(result),
             status_code=200,
-            mimetype="application/json"
+            mimetype="application/json",
+
         )
 
     except Exception as e:
@@ -217,7 +238,8 @@ def execute_transfer(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(
             json.dumps({"error": f"Transfer failed: {str(e)}"}),
             status_code=500,
-            mimetype="application/json"
+            mimetype="application/json",
+            headers=cors_headers()
         )
 
 def save_to_cosmos(transaction: dict):
@@ -347,7 +369,8 @@ def send_email_confirmation(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(
             json.dumps({"error": "Invalid input."}),
             status_code=400,
-            mimetype="application/json"
+            mimetype="application/json",
+            headers=cors_headers()
         )
 
     if not all([sender_email, recipient_email, amount_usd,
@@ -355,7 +378,8 @@ def send_email_confirmation(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(
             json.dumps({"error": "Missing required fields."}),
             status_code=400,
-            mimetype="application/json"
+            mimetype="application/json",
+            headers=cors_headers()
         )
 
     try:
@@ -368,7 +392,8 @@ def send_email_confirmation(req: func.HttpRequest) -> func.HttpResponse:
             return func.HttpResponse(
                 json.dumps({"error": "Email configuration missing."}),
                 status_code=500,
-                mimetype="application/json"
+                mimetype="application/json",
+                headers=cors_headers()
             )
 
         email_client = EmailClient.from_connection_string(conn_str)
@@ -486,7 +511,8 @@ def send_email_confirmation(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(
             json.dumps(result),
             status_code=200,
-            mimetype="application/json"
+            mimetype="application/json",
+            headers=cors_headers()
         )
 
     except Exception as e:
@@ -494,7 +520,8 @@ def send_email_confirmation(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(
             json.dumps({"error": f"Email sending failed: {str(e)}"}),
             status_code=500,
-            mimetype="application/json"
+            mimetype="application/json",
+            headers=cors_headers()
         )
 
 # ─────────────────────────────────────────────
@@ -507,25 +534,34 @@ def create_thread(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('create_thread triggered')
 
     if req.method == 'OPTIONS':
-        return func.HttpResponse(
-            status_code=200,
-            headers={
-                'Access-Control-Allow-Origin':  '*',
-                'Access-Control-Allow-Methods': 'POST, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type'
-            }
-        )
+        return options_response()
 
     try:
         from azure.ai.agents import AgentsClient
         from azure.identity import DefaultAzureCredential
+        import traceback
 
         endpoint = os.environ.get("FOUNDRY_PROJECT_ENDPOINT")
-        client   = AgentsClient(
+        agent_id = os.environ.get("FOUNDRY_AGENT_ID")
+
+        logging.info(f"Endpoint: {endpoint}")
+        logging.info(f"Agent ID: {agent_id}")
+
+        if not endpoint:
+            return func.HttpResponse(
+                json.dumps({"error": "FOUNDRY_PROJECT_ENDPOINT not configured"}),
+                status_code=500,
+                mimetype="application/json",
+                headers=cors_headers()
+            )
+
+        credential = DefaultAzureCredential()
+        client     = AgentsClient(
             endpoint=endpoint,
-            credential=DefaultAzureCredential()
+            credential=credential
         )
 
+        logging.info("AgentsClient created — creating thread...")
         thread = client.threads.create()
         logging.info(f"Thread created: {thread.id}")
 
@@ -533,16 +569,21 @@ def create_thread(req: func.HttpRequest) -> func.HttpResponse:
             json.dumps({"thread_id": thread.id}),
             status_code=200,
             mimetype="application/json",
-            headers={'Access-Control-Allow-Origin': '*'}
+            headers=cors_headers()
         )
 
     except Exception as e:
+        error_detail = traceback.format_exc()
         logging.error(f"create_thread failed: {str(e)}")
+        logging.error(f"Traceback: {error_detail}")
         return func.HttpResponse(
-            json.dumps({"error": str(e)}),
+            json.dumps({
+                "error":   str(e),
+                "detail":  error_detail
+            }),
             status_code=500,
             mimetype="application/json",
-            headers={'Access-Control-Allow-Origin': '*'}
+            headers=cors_headers()
         )
 
 
@@ -551,14 +592,7 @@ def chat_handler(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('chat_handler triggered')
 
     if req.method == 'OPTIONS':
-        return func.HttpResponse(
-            status_code=200,
-            headers={
-                'Access-Control-Allow-Origin':  '*',
-                'Access-Control-Allow-Methods': 'POST, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type'
-            }
-        )
+        return options_response()
 
     try:
         body      = req.get_json()
@@ -570,7 +604,7 @@ def chat_handler(req: func.HttpRequest) -> func.HttpResponse:
                 json.dumps({"error": "Missing message or thread_id"}),
                 status_code=400,
                 mimetype="application/json",
-                headers={'Access-Control-Allow-Origin': '*'}
+                headers=c
             )
 
     except Exception as e:
@@ -578,7 +612,7 @@ def chat_handler(req: func.HttpRequest) -> func.HttpResponse:
             json.dumps({"error": f"Invalid request: {str(e)}"}),
             status_code=400,
             mimetype="application/json",
-            headers={'Access-Control-Allow-Origin': '*'}
+            headers=cors_headers()
         )
 
     try:
