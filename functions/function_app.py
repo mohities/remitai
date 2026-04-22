@@ -64,8 +64,9 @@ def get_fx_rate(req: func.HttpRequest) -> func.HttpResponse:
 
         remitai_fee = round(amount_usd * 0.001, 2)
         remitai_fee = max(remitai_fee, 0.20)
-        legacy_fee = round(amount_usd * 0.065, 2)
-        savings = round(legacy_fee - remitai_fee, 2)
+        legacy_fee  = round(amount_usd * 0.065, 2)
+        legacy_fee  = max(legacy_fee, 5.00)
+        savings     = round(legacy_fee - remitai_fee, 2)
 
         result = {
             "amount_usd": amount_usd,
@@ -321,6 +322,378 @@ def get_circle_token_id(api_key: str, blockchain: str, symbol: str) -> str:
         logging.error(f"Token lookup failed: {str(e)}")
         return None
 
+
 # ─────────────────────────────────────────────
-# FUNCTION 3 — send_sms_confirmation (coming next)
+# FUNCTION 3 — send_email_confirmation
 # ─────────────────────────────────────────────
+@app.route(route="send_email_confirmation", auth_level=func.AuthLevel.FUNCTION)
+def send_email_confirmation(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info('send_email_confirmation function triggered')
+
+    try:
+        req_body            = req.get_json()
+        sender_email        = req_body.get('sender_email')
+        recipient_email     = req_body.get('recipient_email')
+        sender_name         = req_body.get('sender_name', 'Sender')
+        recipient_name      = req_body.get('recipient_name', 'Recipient')
+        amount_usd          = req_body.get('amount_usd')
+        destination_country = req_body.get('destination_country')
+        transaction_id      = req_body.get('transaction_id')
+        local_amount        = req_body.get('local_amount', '')
+        local_currency      = req_body.get('local_currency', '')
+        remitai_fee         = req_body.get('remitai_fee', '0.20')
+        legacy_fee          = req_body.get('legacy_fee', '')
+    except Exception:
+        return func.HttpResponse(
+            json.dumps({"error": "Invalid input."}),
+            status_code=400,
+            mimetype="application/json"
+        )
+
+    if not all([sender_email, recipient_email, amount_usd,
+                transaction_id, destination_country]):
+        return func.HttpResponse(
+            json.dumps({"error": "Missing required fields."}),
+            status_code=400,
+            mimetype="application/json"
+        )
+
+    try:
+        from azure.communication.email import EmailClient
+
+        conn_str     = os.environ.get("AZURE_EMAIL_CONNECTION_STRING")
+        from_addr    = os.environ.get("AZURE_EMAIL_SENDER")
+
+        if not conn_str or not from_addr:
+            return func.HttpResponse(
+                json.dumps({"error": "Email configuration missing."}),
+                status_code=500,
+                mimetype="application/json"
+            )
+
+        email_client = EmailClient.from_connection_string(conn_str)
+
+        sender_body = (
+            "<html><body style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;'>"
+            "<div style='background-color: #1a73e8; padding: 20px; text-align: center;'>"
+            "<h1 style='color: white; margin: 0;'>RemitAI</h1>"
+            "<p style='color: #e8f0fe; margin: 5px 0;'>Stablecoin Remittance</p>"
+            "</div>"
+            "<div style='padding: 30px; background-color: #f8f9fa;'>"
+            "<h2 style='color: #1a73e8;'>Transfer Initiated Successfully</h2>"
+            "<p>Hi " + sender_name + ", your transfer is on its way.</p>"
+            "<div style='background: white; border-radius: 8px; padding: 20px; margin: 20px 0;'>"
+            "<table style='width: 100%; border-collapse: collapse;'>"
+            "<tr><td style='padding: 8px 0; color: #666;'>Amount sent</td>"
+            "<td style='padding: 8px 0; font-weight: bold;'>$" + str(amount_usd) + " USDC</td></tr>"
+            "<tr><td style='padding: 8px 0; color: #666;'>Recipient</td>"
+            "<td style='padding: 8px 0; font-weight: bold;'>" + recipient_name + "</td></tr>"
+            "<tr><td style='padding: 8px 0; color: #666;'>Destination</td>"
+            "<td style='padding: 8px 0; font-weight: bold;'>" + destination_country.title() + "</td></tr>"
+            "<tr><td style='padding: 8px 0; color: #666;'>Recipient receives</td>"
+            "<td style='padding: 8px 0; font-weight: bold;'>" + str(local_amount) + " " + str(local_currency) + "</td></tr>"
+            "<tr><td style='padding: 8px 0; color: #666;'>RemitAI fee</td>"
+            "<td style='padding: 8px 0; font-weight: bold; color: #34a853;'>$" + str(remitai_fee) + "</td></tr>"
+            "<tr><td style='padding: 8px 0; color: #666;'>You saved vs Western Union</td>"
+            "<td style='padding: 8px 0; font-weight: bold; color: #34a853;'>$" + str(legacy_fee) + "</td></tr>"
+            "<tr style='border-top: 1px solid #eee;'>"
+            "<td style='padding: 8px 0; color: #666;'>Transaction ID</td>"
+            "<td style='padding: 8px 0; font-size: 12px; color: #999;'>" + transaction_id + "</td></tr>"
+            "<tr><td style='padding: 8px 0; color: #666;'>Estimated delivery</td>"
+            "<td style='padding: 8px 0; font-weight: bold; color: #34a853;'>Under 60 seconds</td></tr>"
+            "</table></div>"
+            "<div style='background: #e8f5e9; border-radius: 8px; padding: 15px; margin: 20px 0;'>"
+            "<p style='margin: 0; color: #2e7d32;'>"
+            "<strong>You saved $" + str(legacy_fee) + " vs Western Union.</strong> "
+            "Traditional services charge $" + str(legacy_fee) + ". "
+            "RemitAI charged only $" + str(remitai_fee) + "."
+            "</p></div></div>"
+            "<div style='padding: 20px; text-align: center; color: #999; font-size: 12px;'>"
+            "<p>Powered by Azure AI Foundry and USDC Stablecoin Technology</p>"
+            "<p>Transaction ID: " + transaction_id + "</p>"
+            "</div></body></html>"
+        )
+
+        recipient_body = (
+            "<html><body style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;'>"
+            "<div style='background-color: #1a73e8; padding: 20px; text-align: center;'>"
+            "<h1 style='color: white; margin: 0;'>RemitAI</h1>"
+            "<p style='color: #e8f0fe; margin: 5px 0;'>Stablecoin Remittance</p>"
+            "</div>"
+            "<div style='padding: 30px; background-color: #f8f9fa;'>"
+            "<h2 style='color: #1a73e8;'>You have received money!</h2>"
+            "<p>Hi " + recipient_name + ", " + sender_name + " has sent you money.</p>"
+            "<div style='background: white; border-radius: 8px; padding: 20px; margin: 20px 0;'>"
+            "<table style='width: 100%; border-collapse: collapse;'>"
+            "<tr><td style='padding: 8px 0; color: #666;'>From</td>"
+            "<td style='padding: 8px 0; font-weight: bold;'>" + sender_name + "</td></tr>"
+            "<tr><td style='padding: 8px 0; color: #666;'>Amount received</td>"
+            "<td style='padding: 8px 0; font-weight: bold; font-size: 24px; color: #1a73e8;'>"
+            + str(local_amount) + " " + str(local_currency) + "</td></tr>"
+            "<tr><td style='padding: 8px 0; color: #666;'>Equivalent in USD</td>"
+            "<td style='padding: 8px 0; font-weight: bold;'>$" + str(amount_usd) + "</td></tr>"
+            "<tr><td style='padding: 8px 0; color: #666;'>Status</td>"
+            "<td style='padding: 8px 0; font-weight: bold; color: #34a853;'>Delivered</td></tr>"
+            "<tr style='border-top: 1px solid #eee;'>"
+            "<td style='padding: 8px 0; color: #666;'>Transaction ID</td>"
+            "<td style='padding: 8px 0; font-size: 12px; color: #999;'>" + transaction_id + "</td></tr>"
+            "</table></div></div>"
+            "<div style='padding: 20px; text-align: center; color: #999; font-size: 12px;'>"
+            "<p>Powered by Azure AI Foundry and USDC Stablecoin Technology</p>"
+            "</div></body></html>"
+        )
+
+        sender_message = {
+            "senderAddress": from_addr,
+            "recipients": {
+                "to": [{"address": sender_email}]
+            },
+            "content": {
+                "subject": "RemitAI — Your transfer of $" + str(amount_usd) + " to " + recipient_name + " is on its way",
+                "html": sender_body
+            }
+        }
+
+        recipient_message = {
+            "senderAddress": from_addr,
+            "recipients": {
+                "to": [{"address": recipient_email}]
+            },
+            "content": {
+                "subject": "RemitAI — " + sender_name + " sent you " + str(local_amount) + " " + str(local_currency),
+                "html": recipient_body
+            }
+        }
+
+        logging.info(f"Sending sender confirmation to: {sender_email}")
+        sender_poller   = email_client.begin_send(sender_message)
+        sender_result   = sender_poller.result()
+        logging.info(f"Sender email result: {sender_result}")
+
+        logging.info(f"Sending recipient notification to: {recipient_email}")
+        recipient_poller = email_client.begin_send(recipient_message)
+        recipient_result = recipient_poller.result()
+        logging.info(f"Recipient email result: {recipient_result}")
+
+        result = {
+            "status": "sent",
+            "sender_email": sender_email,
+            "recipient_email": recipient_email,
+            "transaction_id": transaction_id,
+            "message": "Confirmation emails sent to both sender and recipient"
+        }
+
+        return func.HttpResponse(
+            json.dumps(result),
+            status_code=200,
+            mimetype="application/json"
+        )
+
+    except Exception as e:
+        logging.error(f"Email sending failed: {str(e)}")
+        return func.HttpResponse(
+            json.dumps({"error": f"Email sending failed: {str(e)}"}),
+            status_code=500,
+            mimetype="application/json"
+        )
+
+# ─────────────────────────────────────────────
+# FUNCTION 4 — chat_handler
+# Bridges the web UI to the Foundry agent
+# ─────────────────────────────────────────────
+
+@app.route(route="create_thread", auth_level=func.AuthLevel.ANONYMOUS)
+def create_thread(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info('create_thread triggered')
+
+    if req.method == 'OPTIONS':
+        return func.HttpResponse(
+            status_code=200,
+            headers={
+                'Access-Control-Allow-Origin':  '*',
+                'Access-Control-Allow-Methods': 'POST, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type'
+            }
+        )
+
+    try:
+        from azure.ai.agents import AgentsClient
+        from azure.identity import DefaultAzureCredential
+
+        endpoint = os.environ.get("FOUNDRY_PROJECT_ENDPOINT")
+        client   = AgentsClient(
+            endpoint=endpoint,
+            credential=DefaultAzureCredential()
+        )
+
+        thread = client.threads.create()
+        logging.info(f"Thread created: {thread.id}")
+
+        return func.HttpResponse(
+            json.dumps({"thread_id": thread.id}),
+            status_code=200,
+            mimetype="application/json",
+            headers={'Access-Control-Allow-Origin': '*'}
+        )
+
+    except Exception as e:
+        logging.error(f"create_thread failed: {str(e)}")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            status_code=500,
+            mimetype="application/json",
+            headers={'Access-Control-Allow-Origin': '*'}
+        )
+
+
+@app.route(route="chat_handler", auth_level=func.AuthLevel.ANONYMOUS)
+def chat_handler(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info('chat_handler triggered')
+
+    if req.method == 'OPTIONS':
+        return func.HttpResponse(
+            status_code=200,
+            headers={
+                'Access-Control-Allow-Origin':  '*',
+                'Access-Control-Allow-Methods': 'POST, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type'
+            }
+        )
+
+    try:
+        body      = req.get_json()
+        user_msg  = body.get('message', '').strip()
+        thread_id = body.get('thread_id', '').strip()
+
+        if not user_msg or not thread_id:
+            return func.HttpResponse(
+                json.dumps({"error": "Missing message or thread_id"}),
+                status_code=400,
+                mimetype="application/json",
+                headers={'Access-Control-Allow-Origin': '*'}
+            )
+
+    except Exception as e:
+        return func.HttpResponse(
+            json.dumps({"error": f"Invalid request: {str(e)}"}),
+            status_code=400,
+            mimetype="application/json",
+            headers={'Access-Control-Allow-Origin': '*'}
+        )
+
+    try:
+        from azure.ai.agents import AgentsClient
+        from azure.identity import DefaultAzureCredential
+
+        endpoint = os.environ.get("FOUNDRY_PROJECT_ENDPOINT")
+        agent_id = os.environ.get("FOUNDRY_AGENT_ID")
+        func_url = os.environ.get("FUNCTION_BASE_URL")
+        func_key = os.environ.get("FUNCTION_KEY")
+
+        client = AgentsClient(
+            endpoint=endpoint,
+            credential=DefaultAzureCredential()
+        )
+
+        client.messages.create(
+            thread_id=thread_id,
+            role="user",
+            content=user_msg
+        )
+
+        run = client.runs.create(
+            thread_id=thread_id,
+            agent_id=agent_id
+        )
+
+        all_tool_results = []
+
+        while run.status in ["queued", "in_progress", "requires_action"]:
+            time.sleep(1)
+            run = client.runs.get(
+                thread_id=thread_id,
+                run_id=run.id
+            )
+
+            if run.status == "requires_action":
+                tool_outputs = []
+
+                for tool_call in run.required_action.submit_tool_outputs.tool_calls:
+                    name      = tool_call.function.name
+                    arguments = json.loads(tool_call.function.arguments)
+
+                    logging.info(f"Tool called: {name}")
+                    logging.info(f"Arguments: {json.dumps(arguments)}")
+
+                    tool_url     = f"{func_url}/{name}"
+                    tool_headers = {
+                        "Content-Type":    "application/json",
+                        "x-functions-key": func_key
+                    }
+
+                    try:
+                        tool_response = requests.post(
+                            tool_url,
+                            headers=tool_headers,
+                            json=arguments,
+                            timeout=30
+                        )
+                        tool_result = tool_response.json()
+                        tool_output = json.dumps(tool_result)
+                    except Exception as e:
+                        tool_output = json.dumps({"error": str(e)})
+                        tool_result = {"error": str(e)}
+
+                    tool_outputs.append({
+                        "tool_call_id": tool_call.id,
+                        "output":       tool_output
+                    })
+
+                    all_tool_results.append({
+                        "name":   name,
+                        "result": tool_result
+                    })
+
+                client.runs.submit_tool_outputs(
+                    thread_id=thread_id,
+                    run_id=run.id,
+                    tool_outputs=tool_outputs
+                )
+
+        if run.status == "failed":
+            error = getattr(run, 'last_error', 'Unknown error')
+            logging.error(f"Run failed: {error}")
+            return func.HttpResponse(
+                json.dumps({
+                    "response":     "I'm sorry, something went wrong. Please try again.",
+                    "tool_results": []
+                }),
+                status_code=200,
+                mimetype="application/json",
+                headers={'Access-Control-Allow-Origin': '*'}
+            )
+
+        messages  = list(client.messages.list(thread_id=thread_id))
+        last_msg  = messages[0]
+        response  = last_msg.content[0].text.value
+
+        logging.info(f"Agent response: {response[:100]}")
+
+        return func.HttpResponse(
+            json.dumps({
+                "response":     response,
+                "tool_results": all_tool_results
+            }),
+            status_code=200,
+            mimetype="application/json",
+            headers={'Access-Control-Allow-Origin': '*'}
+        )
+
+    except Exception as e:
+        logging.error(f"chat_handler failed: {str(e)}")
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            status_code=500,
+            mimetype="application/json",
+            headers={'Access-Control-Allow-Origin': '*'}
+        )

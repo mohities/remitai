@@ -3,8 +3,15 @@
 # azure-monitor-opentelemetry 
 
 azure-functions
-azure-functions
 azure-cosmos
 azure-communication-sms
+azure-communication-email
 requests
 cryptography
+azure-ai-projects
+azure-identity
+azure-ai-agents
+azure-cognitiveservices-speech
+python-dotenv
+flask 
+flask-cors
