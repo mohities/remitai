@@ -584,18 +584,38 @@ function setLang(l, el) {
 
 function toggleMic() {
   if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-    alert('Voice input requires Chrome. Please use Chrome browser.')
+    alert('Voice input requires Chrome browser.')
     return
   }
   listening ? stopMic() : startMic()
 }
 
 function startMic() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-  recog = new SR()
-  recog.lang = lang
-  recog.continuous = false
-  recog.interimResults = true
+  navigator.mediaDevices.getUserMedia({ audio: true })
+    .then(stream => {
+      startRecognition()
+      setTimeout(() => {
+        stream.getTracks().forEach(t => t.stop())
+      }, 500)
+    })
+    .catch(err => {
+      console.error('Mic access failed:', err)
+      alert(
+        'Cannot access microphone.\n\n' +
+        'Please check:\n' +
+        '1. No other app is using the mic\n' +
+        '2. Mic is not muted in System Settings\n' +
+        '3. Refresh the page and try again'
+      )
+    })
+}
+
+function startRecognition() {
+  const SR  = window.SpeechRecognition || window.webkitSpeechRecognition
+  recog     = new SR()
+  recog.lang            = lang
+  recog.continuous      = false
+  recog.interimResults  = true
 
   const btn = document.getElementById('micBtn')
   const box = document.getElementById('box')
@@ -604,6 +624,7 @@ function startMic() {
     listening = true
     btn.classList.add('on')
     box.placeholder = 'Listening...'
+    console.log('Speech recognition started, lang:', lang)
   }
 
   recog.onresult = e => {
@@ -626,17 +647,50 @@ function startMic() {
     listening = false
     btn.classList.remove('on')
     box.placeholder = 'Type a message or click the mic...'
-    console.error('Mic error:', e.error)
-    if (e.error === 'not-allowed') {
-      alert('Microphone blocked. Click the camera/mic icon in Chrome address bar and allow access.')
+    console.error('Speech error:', e.error)
+
+    if (e.error === 'audio-capture') {
+      alert(
+        'Microphone capture failed.\n\n' +
+        'Please try:\n' +
+        '1. Close other apps using the mic (Zoom, Teams etc)\n' +
+        '2. Unplug and replug headphones\n' +
+        '3. Refresh the page and try again'
+      )
+    } else if (e.error === 'not-allowed') {
+      alert(
+        'Microphone blocked.\n\n' +
+        'Click the lock icon in the Chrome address bar and set Microphone to Allow.'
+      )
+    } else if (e.error === 'network') {
+      alert('Network error with speech recognition. Please check your connection.')
+    } else {
+      console.log('Speech error:', e.error)
     }
   }
 
-  recog.start()
+  try {
+    recog.start()
+    console.log('recog.start() called')
+  } catch(e) {
+    console.error('Recognition start failed:', e)
+    listening = false
+    btn.classList.remove('on')
+    alert('Could not start voice recognition. Please refresh and try again.')
+  }
 }
 
 function stopMic() {
-  if (recog) recog.stop()
+  if (recog) {
+    try {
+      recog.stop()
+    } catch(e) {
+      console.error('Stop error:', e)
+    }
+  }
+  listening = false
+  document.getElementById('micBtn').classList.remove('on')
+  document.getElementById('box').placeholder = 'Type a message or click the mic...'
 }
 
 function speak(text) {
