@@ -1,4 +1,4 @@
-# RemitAI — Stablecoin Remittance Co-pilot
+# Cognizant RemitAI — AI powered Stablecoint Remittance Agent
 
 AI-powered multilingual remittance agent helping migrant workers send money home using USDC stablecoins.
 
